@@ -24,7 +24,7 @@ browser (server/public/index.html)
 
 ## Run both
 
-**1. Party City automation (Python, Flask on `:5000`):**
+**1. Party City automation (Python, Flask on `:5001`):**
 
 ```bash
 python3 -m venv .venv
@@ -54,11 +54,11 @@ is skipped (logged in the on-page LOG box).
 Send a structured target or a raw transcript:
 
 ```bash
-curl -X POST http://127.0.0.1:5000/change \
+curl -X POST http://127.0.0.1:5001/change \
   -H 'Content-Type: application/json' \
   -d '{"item":"balloon"}'
 
-curl -X POST http://127.0.0.1:5000/change \
+curl -X POST http://127.0.0.1:5001/change \
   -H 'Content-Type: application/json' \
   -d '{"transcript":"change balloon to pinata"}'
 ```

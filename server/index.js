@@ -14,7 +14,7 @@ const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001';
 // Party City cart automation (Python/Flask, see ../server.py). When the live
 // venue is restyled from balloons to a piñata (or back), we forward the command
 // here so a visible Chrome window swaps the real item in the Party City cart.
-const PARTY_CITY_URL = process.env.PARTY_CITY_URL || 'http://127.0.0.1:5000/change';
+const PARTY_CITY_URL = process.env.PARTY_CITY_URL || 'http://127.0.0.1:5001/change';
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })

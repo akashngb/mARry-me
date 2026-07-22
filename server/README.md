@@ -27,7 +27,7 @@ works over plain http.
 - `GET /` — the web page
 - `POST /rewrite {command}` → `{prompt}` — Claude turns a spoken/typed command into a Lucy prompt
 - `POST /fal/token {app}` → `{token}` — short-lived fal realtime token (keeps `FAL_KEY` server-side)
-- `POST /party {command}` — forwards a decoration swap to the Party City cart automation (`PARTY_CITY_URL`, default `http://127.0.0.1:5000/change`)
+- `POST /party {command}` — forwards a decoration swap to the Party City cart automation (`PARTY_CITY_URL`, default `http://127.0.0.1:5001/change`)
 - `GET /health`
 
 ## Party City cart integration
@@ -48,7 +48,7 @@ cd ..                                   # repo root
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/playwright install chromium
-.venv/bin/python server.py              # Flask on http://127.0.0.1:5000
+.venv/bin/python server.py              # Flask on http://127.0.0.1:5001
 ```
 
 If the Party City service is not running, the AR effect still works; the cart

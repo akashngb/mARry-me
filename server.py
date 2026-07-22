@@ -117,7 +117,9 @@ def parse_args() -> argparse.Namespace:
         help="Run one command directly instead of starting the API.",
     )
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=5000)
+    # Port 5000 is hijacked by macOS AirPlay Receiver (ControlCenter), which
+    # answers every request with 403, so default to 5001 instead.
+    parser.add_argument("--port", type=int, default=5001)
     return parser.parse_args()
 
 
