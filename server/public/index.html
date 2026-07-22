@@ -52,7 +52,7 @@
   <body>
     <header>
       <h1>mARry me — Lucy Live</h1>
-      <p>Laptop webcam → Decart Lucy 2.5 (fal realtime, WebRTC). Type or tap an effect; Claude sharpens the prompt.</p>
+      <p>Laptop webcam → Decart Lucy 2.5 (fal realtime, WebRTC). Type or tap an effect; Claude sharpens the prompt. Swapping balloons ↔ piñata also updates the real Party City cart.</p>
     </header>
     <main>
       <div class="videos">
@@ -94,7 +94,7 @@
         el.scrollTop = el.scrollHeight;
       };
 
-      const PRESETS = ["make it snow", "cyberpunk", "set it on fire", "underwater", "vaporwave sunset"];
+      const PRESETS = ["switch balloons to piñata", "switch piñata to balloons", "make it snow", "cyberpunk", "set it on fire"];
       for (const p of PRESETS) {
         const b = document.createElement("button");
         b.className = "preset";
@@ -245,10 +245,46 @@
         }
       }
 
+      // Detect a party-decoration swap in the command. Returns the item we
+      // should end up with in the cart ("balloon" | "pinata"), or null. If both
+      // are mentioned ("switch balloons to piñata") the last one wins.
+      function decorationItem(text) {
+        const t = (text || "").toLowerCase().replace(/piñata|pinate/g, "pinata");
+        const balloon = t.lastIndexOf("balloon");
+        const pinata = t.lastIndexOf("pinata");
+        if (balloon < 0 && pinata < 0) return null;
+        return pinata > balloon ? "pinata" : "balloon";
+      }
+
+      // When the venue is restyled to/from a piñata, drive the real Party City
+      // cart in parallel with the Lucy AR effect (fire-and-forget).
+      async function driveCart(command) {
+        const item = decorationItem(command);
+        if (!item) return;
+        log(`cart: opening Party City to swap in ${item}…`);
+        try {
+          const r = await fetch("/party", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (r.ok && data.ok) {
+            log(`cart: removed ${data.removed_item ?? "—"}, added ${data.added_item} ✔`);
+          } else {
+            log("cart error: " + (data.error || r.status));
+          }
+        } catch (e) {
+          log("cart request failed: " + (e?.message || e));
+        }
+      }
+
       async function submitCommand(command) {
         command = (command || "").trim();
         if (!command) return;
         setStatus(`thinking: "${command}"…`);
+        // Update the real Party City cart alongside the AR restyle.
+        driveCart(command);
         const prompt = await rewrite(command);
         setActive(prompt);
         if (connection) {

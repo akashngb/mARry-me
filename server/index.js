@@ -11,6 +11,10 @@ const PORT = process.env.PORT || 8787;
 const FAL_KEY = process.env.FAL_KEY;
 const FAL_MODEL_ID = process.env.FAL_MODEL_ID || 'decart/lucy-2-5/realtime';
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001';
+// Party City cart automation (Python/Flask, see ../server.py). When the live
+// venue is restyled from balloons to a piñata (or back), we forward the command
+// here so a visible Chrome window swaps the real item in the Party City cart.
+const PARTY_CITY_URL = process.env.PARTY_CITY_URL || 'http://127.0.0.1:5000/change';
 
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -39,8 +43,37 @@ command: turn me into a cyberpunk
 prompt: cyberpunk restyle of the person, neon accents and glowing implants, rain-slick neon-lit city reflections`;
 
 app.get('/health', (_req, res) =>
-  res.json({ ok: true, model: CLAUDE_MODEL, anthropic: !!anthropic, fal: !!FAL_KEY }),
+  res.json({
+    ok: true,
+    model: CLAUDE_MODEL,
+    anthropic: !!anthropic,
+    fal: !!FAL_KEY,
+    partyCityUrl: PARTY_CITY_URL,
+  }),
 );
+
+// POST /party { command } -> forwards to the Party City cart automation.
+// Kept server-side so the browser avoids CORS and the Flask service URL stays
+// configurable. The Python side extracts "balloon"/"pinata" from the command
+// text itself, so we pass the raw spoken/typed command straight through.
+app.post('/party', async (req, res) => {
+  const command = String(req.body?.command ?? '').trim();
+  if (!command) return res.status(400).json({ ok: false, error: 'missing command' });
+  try {
+    const r = await fetch(PARTY_CITY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ command }),
+    });
+    const data = await r.json().catch(() => ({}));
+    res.status(r.status).json(data);
+  } catch (e) {
+    console.error('party city proxy error:', e);
+    res
+      .status(502)
+      .json({ ok: false, error: `party city service unavailable: ${String(e?.message ?? e)}` });
+  }
+});
 
 // POST /rewrite { command } -> { prompt }
 app.post('/rewrite', async (req, res) => {
