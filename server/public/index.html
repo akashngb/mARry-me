@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mARry me — Lucy Live</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b0d10;
+        color: #f2f4f7;
+      }
+      header { padding: 16px 20px; border-bottom: 1px solid #1e242c; }
+      header h1 { margin: 0; font-size: 18px; }
+      header p { margin: 4px 0 0; color: #8b95a1; font-size: 13px; }
+      main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+      .videos { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      figure { margin: 0; background: #000; border-radius: 12px; overflow: hidden; position: relative; }
+      video { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #000; }
+      figcaption {
+        position: absolute; top: 8px; left: 8px; font-size: 12px; font-weight: 700;
+        letter-spacing: .5px; background: rgba(0,0,0,.5); padding: 4px 8px; border-radius: 20px;
+      }
+      .controls { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+      .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+      .preset, button {
+        font: inherit; color: #fff; background: #2f6fed; border: none;
+        padding: 10px 14px; border-radius: 10px; cursor: pointer;
+      }
+      .preset { background: rgba(47,111,237,.18); border: 1px solid rgba(47,111,237,.5); }
+      button:disabled { opacity: .5; cursor: default; }
+      form { display: flex; gap: 8px; }
+      input[type=text] {
+        flex: 1; font: inherit; color: #fff; background: #12161c;
+        border: 1px solid #232a33; border-radius: 10px; padding: 10px 12px;
+      }
+      label.row { display: flex; align-items: center; gap: 8px; color: #b7c0cc; font-size: 14px; }
+      #startBtn { background: #16a34a; align-self: flex-start; }
+      #stopBtn { background: #b3261e; align-self: flex-start; }
+      #active { color: #7fb0ff; font-size: 14px; min-height: 20px; margin: 0; }
+      #status { color: #b7c0cc; font-size: 13px; margin: 0; }
+      #log {
+        font: 12px/1.5 ui-monospace, Menlo, monospace; color: #7b8794;
+        background: #0e1216; border: 1px solid #1e242c; border-radius: 10px;
+        padding: 10px 12px; max-height: 150px; overflow: auto; white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>mARry me — Lucy Live</h1>
+      <p>Laptop webcam → Decart Lucy 2.5 (fal realtime, WebRTC). Type or tap an effect; Claude sharpens the prompt.</p>
+    </header>
+    <main>
+      <div class="videos">
+        <figure><figcaption>YOU</figcaption><video id="local" autoplay muted playsinline></video></figure>
+        <figure><figcaption>LUCY</figcaption><video id="output" autoplay playsinline></video></figure>
+      </div>
+
+      <div class="controls">
+        <button id="startBtn">▶ Start camera + Lucy</button>
+        <button id="stopBtn" style="display:none">■ Stop</button>
+
+        <div class="presets" id="presets"></div>
+
+        <form id="promptForm">
+          <input id="promptInput" type="text" placeholder="describe an effect… e.g. make it snow" autocomplete="off" />
+          <button type="submit">Send</button>
+        </form>
+
+        <label class="row"><input type="checkbox" id="useClaude" checked /> enhance prompt with Claude</label>
+
+        <p id="active"></p>
+        <p id="status">idle</p>
+        <pre id="log"></pre>
+      </div>
+    </main>
+
+    <script type="module">
+      import { fal } from "https://esm.sh/@fal-ai/client@1.10.1";
+
+      const $ = (id) => document.getElementById(id);
+      const localVideo = $("local");
+      const outputVideo = $("output");
+
+      const setStatus = (m) => { $("status").textContent = m; };
+      const setActive = (p) => { $("active").textContent = p ? `Lucy prompt: ${p}` : ""; };
+      const log = (m) => {
+        const el = $("log");
+        el.textContent += (typeof m === "string" ? m : JSON.stringify(m)) + "\n";
+        el.scrollTop = el.scrollHeight;
+      };
+
+      const PRESETS = ["make it snow", "cyberpunk", "set it on fire", "underwater", "vaporwave sunset"];
+      for (const p of PRESETS) {
+        const b = document.createElement("button");
+        b.className = "preset";
+        b.textContent = p;
+        b.onclick = () => submitCommand(p);
+        $("presets").appendChild(b);
+      }
+
+      // --- state ---
+      let connection = null;   // fal realtime (signaling)
+      let pc = null;           // RTCPeerConnection (media)
+      let localStream = null;
+      let remoteDescSet = false;
+      let offerSent = false;
+
+      // fal short-lived token from our backend proxy (FAL_KEY stays server-side)
+      const tokenProvider = async (app) => {
+        const r = await fetch("/fal/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ app }),
+        });
+        if (!r.ok) throw new Error("token " + r.status);
+        const data = await r.json();
+        return data.token;
+      };
+
+      function ensurePeer(iceServers) {
+        if (pc) {
+          if (iceServers && iceServers.length) { try { pc.setConfiguration({ iceServers }); } catch {} }
+          return pc;
+        }
+        pc = new RTCPeerConnection({
+          iceServers: iceServers && iceServers.length ? iceServers : [{ urls: "stun:stun.l.google.com:19302" }],
+        });
+        for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+        pc.addEventListener("track", (ev) => {
+          outputVideo.srcObject = ev.streams[0];
+          setStatus("Lucy live ✨");
+        });
+        pc.addEventListener("icecandidate", (ev) => {
+          if (ev.candidate) connection.send({ candidate: ev.candidate.toJSON() });
+        });
+        pc.addEventListener("connectionstatechange", () => log("webrtc: " + pc.connectionState));
+        return pc;
+      }
+
+      async function makeOffer() {
+        if (offerSent || remoteDescSet) return;
+        ensurePeer([]);
+        const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false });
+        await pc.setLocalDescription(offer);
+        offerSent = true;
+        connection.send({ type: "offer", sdp: offer.sdp });
+        log("→ sent offer");
+      }
+
+      // Handle every signaling message from fal/Decart adaptively (we don't know
+      // for certain who offers first, so we cope with both directions).
+      async function onSignal(msg) {
+        log(msg);
+        try {
+          if (msg?.error) { setStatus("fal: " + msg.error); return; }
+          if (msg?.iceServers) ensurePeer(msg.iceServers);
+
+          if (msg?.type === "answer" && msg?.sdp) {
+            await pc.setRemoteDescription({ type: "answer", sdp: msg.sdp });
+            remoteDescSet = true;
+            setStatus("answer received — negotiating…");
+          } else if (msg?.type === "offer" && msg?.sdp) {
+            ensurePeer(msg.iceServers || []);
+            await pc.setRemoteDescription({ type: "offer", sdp: msg.sdp });
+            remoteDescSet = true;
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            connection.send({ type: "answer", sdp: answer.sdp });
+            log("→ sent answer");
+          } else if (msg?.candidate) {
+            try { await pc.addIceCandidate(msg.candidate); } catch (e) { log("ice add failed: " + e.message); }
+          }
+        } catch (e) {
+          setStatus("signal error: " + (e?.message || e));
+          console.error(e);
+        }
+      }
+
+      async function start() {
+        try {
+          $("startBtn").disabled = true;
+          setStatus("requesting camera…");
+          localStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 1280, height: 720, frameRate: 30 },
+            audio: false,
+          });
+          localVideo.srcObject = localStream;
+
+          setStatus("connecting to fal…");
+          connection = fal.realtime.connect("decart/lucy-2-5/realtime", {
+            tokenProvider,
+            tokenExpirationSeconds: 60,
+            onResult: onSignal,
+            onError: (e) => { setStatus("fal error"); log(e); },
+          });
+
+          ensurePeer([]);
+          connection.send({}); // documented "start" ping
+          // If the server doesn't offer to us shortly, we offer to it.
+          setTimeout(() => { makeOffer().catch((e) => log("offer err: " + e.message)); }, 1500);
+
+          $("startBtn").style.display = "none";
+          $("stopBtn").style.display = "inline-block";
+          setStatus("camera on — waiting for Lucy… (send a prompt any time)");
+        } catch (e) {
+          $("startBtn").disabled = false;
+          setStatus("start error: " + (e?.message || e));
+          console.error(e);
+        }
+      }
+
+      function stop() {
+        try { connection?.close?.(); } catch {}
+        try { pc?.close(); } catch {}
+        for (const t of localStream?.getTracks() || []) t.stop();
+        connection = pc = localStream = null;
+        remoteDescSet = offerSent = false;
+        outputVideo.srcObject = null;
+        localVideo.srcObject = null;
+        $("stopBtn").style.display = "none";
+        $("startBtn").style.display = "inline-block";
+        $("startBtn").disabled = false;
+        setStatus("stopped");
+      }
+
+      async function rewrite(command) {
+        if (!$("useClaude").checked) return command;
+        try {
+          const r = await fetch("/rewrite", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command }),
+          });
+          if (!r.ok) throw new Error(r.status);
+          const { prompt } = await r.json();
+          return prompt || command;
+        } catch (e) {
+          log("rewrite failed, using raw command");
+          return command;
+        }
+      }
+
+      async function submitCommand(command) {
+        command = (command || "").trim();
+        if (!command) return;
+        setStatus(`thinking: "${command}"…`);
+        const prompt = await rewrite(command);
+        setActive(prompt);
+        if (connection) {
+          connection.send({ prompt, enable_prompt_expansion: true });
+          setStatus("effect sent ✨");
+        } else {
+          setStatus("prompt ready — press Start to apply it");
+        }
+      }
+
+      $("promptForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const v = $("promptInput").value;
+        $("promptInput").value = "";
+        submitCommand(v);
+      });
+      $("startBtn").addEventListener("click", start);
+      $("stopBtn").addEventListener("click", stop);
+    </script>
+  </body>
+</html>
