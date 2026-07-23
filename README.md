@@ -1,11 +1,11 @@
-###hyperfast augmented reality editing for quick wedding planning/budgeting with event hooks for vendor outreach and supply purchasing
+hyperfast personalized + customizable augmented reality editing for quick wedding planning/budgeting with event hooks for vendor outreach and supply purchasing
 
 ideated + built in 37 minutes at cursor toronto in july
 
 "build a wedding planning tool to help out couples who are doing it themselves"
 
-1. ingests claude chat data from both partners being wed as big jsons
-2. uses a BERT classifier algorithm to isolate significant life details and interests into a smaller json
+1. ingests claude chat data from both partners being wed (who knows you better than claude)
+2. BERT classifier algorithm isolates significant life details and interests into jsons (persona)
 3. gemini turns the smaller json into a set of system prompts
 4. system prompts go into an open source augmented reality + genai model (sub 3s latency)
 5. voice commands to alter the environment (i.e. add balloons, change outfits, etc)
